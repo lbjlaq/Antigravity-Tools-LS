@@ -14,6 +14,10 @@ jobs:
       matrix:
         include:
           - platform: "macos-latest"
+            args: "--target aarch64-apple-darwin"
+          - platform: "macos-latest"
+            args: "--target x86_64-apple-darwin"
+          - platform: "macos-latest"
             args: "--target universal-apple-darwin"
           - platform: "ubuntu-22.04"
             args: ""
@@ -176,18 +180,21 @@ jobs:
           }
 
           # Read signatures for each platform
-          # Note: macOS now uses Universal build
+          # Read signatures for each platform
           MACOS_UNI_SIG=$(read_sig "*_universal.app.tar.gz.sig")
-          MACOS_AARCH64_SIG=$( [ -n "$MACOS_UNI_SIG" ] && echo "$MACOS_UNI_SIG" || read_sig "*_aarch64.app.tar.gz.sig")
-          MACOS_X64_SIG=$( [ -n "$MACOS_UNI_SIG" ] && echo "$MACOS_UNI_SIG" || read_sig "*_x64.app.tar.gz.sig")
+          MACOS_AARCH64_SIG=$(read_sig "*_aarch64.app.tar.gz.sig")
+          MACOS_X64_SIG=$(read_sig "*_x64.app.tar.gz.sig")
+          WINDOWS_NSIS_SIG=$(read_sig "*_x64-setup.exe.sig")
+          LINUX_AMD64_SIG=$(read_sig "*_amd64.AppImage.sig")
+          LINUX_AARCH64_SIG=$(read_sig "*_aarch64.AppImage.sig")
           WINDOWS_NSIS_SIG=$(read_sig "*_x64-setup.exe.sig")
           LINUX_AMD64_SIG=$(read_sig "*_amd64.AppImage.sig")
           LINUX_AARCH64_SIG=$(read_sig "*_aarch64.AppImage.sig")
 
           echo "Signatures found:"
           [ -n "$MACOS_UNI_SIG" ] && echo "  macOS Universal: YES" || echo "  macOS Universal: NO"
-          [ -n "$MACOS_AARCH64_SIG" ] && [ -z "$MACOS_UNI_SIG" ] && echo "  macOS aarch64 (Legacy): YES" || true
-          [ -n "$MACOS_X64_SIG" ] && [ -z "$MACOS_UNI_SIG" ] && echo "  macOS x64 (Legacy): YES" || true
+          [ -n "$MACOS_AARCH64_SIG" ] && echo "  macOS aarch64: YES" || echo "  macOS aarch64: NO"
+          [ -n "$MACOS_X64_SIG" ] && echo "  macOS x64: YES" || echo "  macOS x64: NO"
           [ -n "$WINDOWS_NSIS_SIG" ] && echo "  Windows x64: YES" || echo "  Windows x64: NO"
           [ -n "$LINUX_AMD64_SIG" ] && echo "  Linux amd64: YES" || echo "  Linux amd64: NO"
           [ -n "$LINUX_AARCH64_SIG" ] && echo "  Linux aarch64: YES" || echo "  Linux aarch64: NO"
@@ -202,10 +209,11 @@ jobs:
             --arg dl "$DOWNLOAD_BASE" \
             --arg mac_a64_sig "$MACOS_AARCH64_SIG" \
             --arg mac_x64_sig "$MACOS_X64_SIG" \
-            --arg win_nsis_sig "$WINDOWS_NSIS_SIG" \
+            --arg windows_nsis_sig "$WINDOWS_NSIS_SIG" \
             --arg linux_amd64_sig "$LINUX_AMD64_SIG" \
-            --arg mac_a64_url "$([ -n "$MACOS_UNI_SIG" ] && echo "Antigravity.Tools_universal.app.tar.gz" || echo "Antigravity.Tools_aarch64.app.tar.gz")" \
-            --arg mac_x64_url "$([ -n "$MACOS_UNI_SIG" ] && echo "Antigravity.Tools_universal.app.tar.gz" || echo "Antigravity.Tools_x64.app.tar.gz")" \
+            --arg linux_a64_sig "$LINUX_AARCH64_SIG" \
+            --arg mac_a64_url "$([ -n "$MACOS_AARCH64_SIG" ] && echo "Antigravity.Tools_aarch64.app.tar.gz" || echo "Antigravity.Tools_universal.app.tar.gz")" \
+            --arg mac_x64_url "$([ -n "$MACOS_X64_SIG" ] && echo "Antigravity.Tools_x64.app.tar.gz" || echo "Antigravity.Tools_universal.app.tar.gz")" \
             --arg ver "$VER" \
             '{
               version: $version,
@@ -222,7 +230,7 @@ jobs:
                 },
                 "windows-x86_64": {
                   url: "\($dl)/Antigravity.Tools_\($ver)_x64-setup.exe",
-                  signature: $win_nsis_sig
+                  signature: $windows_nsis_sig
                 },
                 "linux-x86_64": {
                   url: "\($dl)/Antigravity.Tools_\($ver)_amd64.AppImage",
