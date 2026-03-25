@@ -80,13 +80,15 @@ jobs:
             ARCH="default"
           fi
           
-          echo "Renaming artifacts with arch: $ARCH"
+          echo "Renaming artifacts with arch: $ARCH and version: ${{ github.ref_name }}"
           mkdir -p artifacts-out
           
-          # 查找并重命名 macos/window/linux 产物，增加架构后缀防止覆盖
-          find target -name "*.dmg" -exec cp {} artifacts-out/Antigravity-Tools-LS_${ARCH}.dmg \; || true
-          find target -name "*.app.tar.gz" -exec cp {} artifacts-out/Antigravity-Tools-LS_${ARCH}.app.tar.gz \; || true
-          find target -name "*.app.tar.gz.sig" -exec cp {} artifacts-out/Antigravity-Tools-LS_${ARCH}.app.tar.gz.sig \; || true
+          # 查找并重命名 macos 产物，增加版本和架构后缀
+          find target -name "*.dmg" -exec cp {} artifacts-out/Antigravity-Tools-LS_${{ github.ref_name }}_${ARCH}.dmg \; || true
+          find target -name "*.app.tar.gz" -exec cp {} artifacts-out/Antigravity-Tools-LS_${{ github.ref_name }}_${ARCH}.app.tar.gz \; || true
+          find target -name "*.app.tar.gz.sig" -exec cp {} artifacts-out/Antigravity-Tools-LS_${{ github.ref_name }}_${ARCH}.app.tar.gz.sig \; || true
+          
+          # Windows/Linux 保持原样（它们自带版本号）
           find target -name "*.exe" -exec cp {} artifacts-out/ \; || true
           find target -name "*.AppImage" -exec cp {} artifacts-out/ \; || true
           find target -name "*.AppImage.sig" -exec cp {} artifacts-out/ \; || true
