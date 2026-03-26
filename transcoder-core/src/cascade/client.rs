@@ -108,7 +108,7 @@ impl CascadeClient {
 
         // AddTrackedWorkspace
         let add_ws_req = AddTrackedWorkspaceRequest {
-            workspace: format!("file://{}", ws_path),
+            workspace: ws_path.to_string(),
             do_not_watch_files: true,
             is_passive_workspace: false,
         };
@@ -202,7 +202,9 @@ impl CascadeClient {
                 subscriber_id: uuid::Uuid::new_v4().to_string(),
             };
             
-            let mut reactive_stream = match client_clone.stream_cascade_reactive_updates(Request::new(stream_req)).await {
+            let mut reactive_req = Request::new(stream_req);
+            reactive_req.metadata_mut().insert("x-codeium-csrf-token", csrf_token_clone.parse().unwrap());
+            let mut reactive_stream = match client_clone.stream_cascade_reactive_updates(reactive_req).await {
                 Ok(resp) => Some(resp.into_inner()),
                 Err(e) => {
                     tracing::warn!("⚠️ [Cascade] 无法开启 Reactive Stream (将回退至轮询): {:?}", e);

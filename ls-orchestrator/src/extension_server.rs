@@ -13,7 +13,7 @@ use tracing::{info, warn, debug};
 use transcoder_core::proto::exa::extension_server_pb::{
     GetSecretValueResponse, SubscribeToUnifiedStateSyncTopicRequest, LanguageServerStartedRequest,
     LanguageServerStartedResponse, LogEventRequest, LogEventResponse,
-    GetChromeDevtoolsMcpUrlResponse, IsAgentManagerEnabledResponse,
+    GetChromeDevtoolsMcpUrlResponse, IsAgentManagerEnabledResponse, CheckTerminalShellSupportResponse,
     unified_state_sync_update::UpdateType,
 };
 use transcoder_core::proto::exa::language_server_pb::OAuthTokenInfo;
@@ -78,6 +78,7 @@ pub async fn start_extension_server(
         .route("/exa.extension_server_pb.ExtensionServerService/LanguageServerStarted", post(handle_ls_started))
         .route("/exa.extension_server_pb.ExtensionServerService/LogEvent", post(handle_log_event))
         .route("/exa.extension_server_pb.ExtensionServerService/GetChromeDevtoolsMcpUrl", post(handle_get_devtools_url))
+        .route("/exa.extension_server_pb.ExtensionServerService/CheckTerminalShellSupport", post(handle_check_terminal_shell_support))
         .route("/exa.extension_server_pb.ExtensionServerService/IsAgentManagerEnabled", post(handle_generic_false))
         .route("/exa.extension_server_pb.ExtensionServerService/PushUnifiedStateSyncUpdate", post(handle_push_uss_update))
         .fallback(handle_any_grpc)
@@ -308,6 +309,37 @@ async fn handle_get_devtools_url(req: Request<Body>) -> impl IntoResponse {
         .header(header::CONTENT_TYPE, "application/connect+proto")
         .body(Body::from([ConnectWire::encode_data(&resp), ConnectWire::encode_end_stream()].concat()))
         .unwrap()
+}
+
+async fn handle_check_terminal_shell_support(req: Request<Body>) -> impl IntoResponse {
+    let content_type = req.headers().get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("application/connect+proto");
+    let shell_path = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
+    let shell_name = std::path::Path::new(&shell_path)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("sh")
+        .to_string();
+    let resp = CheckTerminalShellSupportResponse {
+        has_shell_integration: true,
+        shell_name,
+        shell_path,
+    };
+
+    if content_type == "application/proto" {
+        let mut buf = Vec::new();
+        let _ = resp.encode(&mut buf);
+        Response::builder()
+            .header(header::CONTENT_TYPE, "application/proto")
+            .body(Body::from(buf))
+            .unwrap()
+    } else {
+        Response::builder()
+            .header(header::CONTENT_TYPE, "application/connect+proto")
+            .body(Body::from([ConnectWire::encode_data(&resp), ConnectWire::encode_end_stream()].concat()))
+            .unwrap()
+    }
 }
 
 async fn handle_generic_false(req: Request<Body>) -> impl IntoResponse {

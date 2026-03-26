@@ -390,10 +390,14 @@ pub async fn anthropic_messages(
 pub async fn gemini_generate_content(
     State(state): State<Arc<AppState>>,
     auth: AuthContext,
-    Path(_model): Path<String>,
+    Path(model): Path<String>,
     headers: HeaderMap,
-    Json(payload): Json<transcoder_core::transcoder::GeminiContentRequest>,
+    Json(mut payload): Json<transcoder_core::transcoder::GeminiContentRequest>,
 ) -> Response {
+    // Gemini 原生 SDK 会将调用方法拼到路径上，例如
+    // gemini-3-flash-agent:streamGenerateContent，需要先还原真实模型名。
+    let normalized_model = model.split(':').next().unwrap_or(&model).to_string();
+    payload.model = Some(normalized_model);
     let slot_id = extract_slot_id(&headers);
     handle_protocol_generic::<GeminiMapper>(&state, auth, slot_id, payload).await
 }

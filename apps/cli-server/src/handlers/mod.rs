@@ -47,6 +47,11 @@ pub fn extract_token(headers: &axum::http::HeaderMap) -> Option<String> {
     if let Some(token) = headers.get("x-api-key") {
         return token.to_str().ok().map(|s| s.to_string());
     }
+
+    // 兼容 Gemini SDK / Gemini CLI 使用的原生头
+    if let Some(token) = headers.get("x-goog-api-key") {
+        return token.to_str().ok().map(|s| s.to_string());
+    }
     
     if let Some(auth) = headers.get("authorization") {
         let auth_str = auth.to_str().ok()?;
