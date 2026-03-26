@@ -359,7 +359,7 @@ impl LsProvider for NativeLsProvider {
         
         info!("🚀 启动核心进程 (ID: {})...", logic_id);
         debug!("🛠 [Native] 命令执行路径: {:?}", self.bin_path);
-        debug!("🛠 [Native] 启动参数: -lsp_port {} -server_port {} -extension_server_port {} -extension_server_csrf_token {}", lsp_port, server_port, es_port, es_csrf_token);
+        debug!("🛠 [Native] 启动参数: -lsp_port {} -https_server_port {} -extension_server_port {} -extension_server_csrf_token {}", lsp_port, server_port, es_port, es_csrf_token);
         
         let vscode_pid = std::process::id().to_string();
         let session_id = uuid::Uuid::new_v4().to_string();
@@ -378,9 +378,10 @@ impl LsProvider for NativeLsProvider {
            .env("ANTIGRAVITY_EDITOR_APP_ROOT", &data_dir) 
            .env("VSCODE_NLS_CONFIG", &nls_config)
            .arg("-lsp_port").arg(lsp_port.to_string())
-           .arg("-server_port").arg(server_port.to_string())
+           .arg("-https_server_port").arg(server_port.to_string())
            .arg("-extension_server_port").arg(es_port.to_string())
            .arg("-csrf_token").arg(&es_csrf_token)
+           .arg("-extension_server_csrf_token").arg(&es_csrf_token)
            // 🚀 核心变更：不再携带 -standalone
            .arg("--cloud_code_endpoint")
            .arg(&self.cloud_code_endpoint)

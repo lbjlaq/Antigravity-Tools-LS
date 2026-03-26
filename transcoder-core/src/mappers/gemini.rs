@@ -14,9 +14,9 @@ impl ProtocolMapper for GeminiMapper {
         "gemini".to_string()
     }
 
-    fn get_model(_req: &Self::Request) -> &str {
-        // Gemini 原生请求通常在路径中指定模型，这里返回占位符或视情况从状态中拿
-        "gemini-native"
+    fn get_model(req: &Self::Request) -> &str {
+        // Gemini 原生协议将模型放在 URL path 中，由上层路由注入到请求体
+        req.model.as_deref().unwrap_or("gemini-native")
     }
 
     fn build_prompt(req: &Self::Request) -> Result<String> {

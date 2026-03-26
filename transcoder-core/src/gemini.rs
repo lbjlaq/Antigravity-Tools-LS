@@ -2,6 +2,8 @@ use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
 pub struct GeminiContentRequest {
+    #[serde(default)]
+    pub model: Option<String>,
     pub contents: Vec<GeminiContent>,
     #[serde(default)]
     pub system_instruction: Option<GeminiContent>,
