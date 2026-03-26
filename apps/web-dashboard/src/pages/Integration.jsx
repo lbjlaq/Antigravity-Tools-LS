@@ -45,6 +45,15 @@ import useAccountStore from '../store/useAccountStore';
 import useKeyStore from '../store/useKeyStore';
 import useAppStore from '../store/useAppStore';
 
+const FALLBACK_MODELS = [
+  { id: 'gemini-3.1-pro-high', name: 'Gemini 3.1 Pro', provider: 'Google', recommended: true, capabilities: ['Chat', 'Thinking'] },
+  { id: 'gemini-3.1-pro-low', name: 'Gemini 3.1 Pro Low', provider: 'Google', recommended: false, capabilities: ['Chat', 'Thinking'] },
+  { id: 'gemini-3-flash-agent', name: 'Gemini 3 Flash Agent', provider: 'Google', recommended: true, capabilities: ['Chat'] },
+  { id: 'claude-sonnet-4-6', name: 'Claude Sonnet', provider: 'Anthropic', recommended: true, capabilities: ['Chat'] },
+  { id: 'claude-opus-4-6-thinking', name: 'Claude Opus Thinking', provider: 'Anthropic', recommended: false, capabilities: ['Chat', 'Thinking'] },
+  { id: 'gpt-oss-120b-medium', name: 'GPT OSS 120B Medium', provider: 'OpenAI', recommended: false, capabilities: ['Chat'] },
+];
+
 const Integration = () => {
   const { t } = useTranslation();
   const { addToast } = useAppStore();
@@ -332,6 +341,18 @@ const Integration = () => {
         }
       });
     });
+
+    if (modelMap.size === 0) {
+      FALLBACK_MODELS.forEach(model => {
+        modelMap.set(model.id, {
+          ...model,
+          family: model.id.split('-')[0],
+          count: 0,
+          is_active: false,
+          percentage: 0,
+        });
+      });
+    }
 
     return Array.from(modelMap.values()).sort((a, b) => {
       if (a.recommended !== b.recommended) return b.recommended ? 1 : -1;

@@ -504,6 +504,15 @@ pub struct OpenAiModel {
     pub owned_by: String,
 }
 
+const DOCUMENTED_MODEL_IDS: &[&str] = &[
+    "gemini-3.1-pro-high",
+    "gemini-3.1-pro-low",
+    "gemini-3-flash-agent",
+    "claude-sonnet-4-6",
+    "claude-opus-4-6-thinking",
+    "gpt-oss-120b-medium",
+];
+
 pub async fn models_api(
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
@@ -518,11 +527,17 @@ pub async fn models_api(
         if let Ok(Some(account)) = state.account_manager.get_account(&summary.id).await {
             if let Some(quota) = account.quota {
                 for m in quota.models {
-                    if m.percentage > 0 {
+                    if !m.name.trim().is_empty() {
                         model_names.insert(m.name);
                     }
                 }
             }
+        }
+    }
+
+    if model_names.is_empty() {
+        for model_id in DOCUMENTED_MODEL_IDS {
+            model_names.insert((*model_id).to_string());
         }
     }
 
@@ -558,5 +573,170 @@ pub async fn update_account_label_api(
     match state.account_manager.update_label(&id, payload.label).await {
         Ok(_) => (StatusCode::OK, "Label updated").into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to update label: {}", e)).into_response(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        handlers::{provision::SyncProgressEvent, settings::AppSettings},
+        key_manager::KeyManager,
+        logger::MemoryLogRing,
+        state::AppState,
+        traffic_db::TrafficManager,
+    };
+    use axum::{body::to_bytes, response::IntoResponse};
+    use ls_accounts::{Account, AccountStatus, OAuthToken, QuotaData};
+    use std::{
+        collections::{HashMap, HashSet},
+        sync::Arc,
+    };
+    use tokio::sync::RwLock;
+    use transcoder_core::transcoder::StatsManager;
+
+    fn make_model(name: &str, percentage: i32) -> ls_accounts::ModelQuota {
+        ls_accounts::ModelQuota {
+            name: name.to_string(),
+            percentage,
+            reset_time: String::new(),
+            display_name: None,
+            supports_images: None,
+            supports_thinking: None,
+            thinking_budget: None,
+            recommended: None,
+            max_tokens: None,
+            max_output_tokens: None,
+            min_thinking_budget: None,
+            tokenizer_type: None,
+            api_provider: None,
+            model_provider: None,
+            supports_video: None,
+            tag_title: None,
+            supported_mime_types: None,
+            internal_model: None,
+        }
+    }
+
+    async fn make_test_state() -> Arc<AppState> {
+        let data_dir = std::env::temp_dir().join(format!(
+            "antigravity-tools-ls-tests-{}",
+            uuid::Uuid::new_v4()
+        ));
+        tokio::fs::create_dir_all(&data_dir).await.unwrap();
+
+        let account_manager = Arc::new(ls_accounts::AccountManager::new(data_dir.clone()).await.unwrap());
+        let key_manager = Arc::new(KeyManager::new(data_dir.clone()).await.unwrap());
+        let stats_mgr = Arc::new(StatsManager::new(&data_dir).unwrap());
+        let traffic_mgr = Arc::new(TrafficManager::new(&data_dir).unwrap());
+        let (sync_tx, _) = tokio::sync::broadcast::channel(8);
+        let (account_tx, _) = tokio::sync::broadcast::channel(8);
+
+        Arc::new(AppState {
+            provider: RwLock::new(None),
+            account_manager,
+            tls_cert: RwLock::new(None),
+            http_client: reqwest::Client::new(),
+            port: 5173,
+            auth_states: RwLock::new(HashSet::new()),
+            mem_logger: MemoryLogRing::new(32),
+            key_manager,
+            stats_mgr,
+            traffic_mgr,
+            app_settings: RwLock::new(AppSettings::default()),
+            sync_tx,
+            last_sync_event: RwLock::new(None::<SyncProgressEvent>),
+            account_tx,
+        })
+    }
+
+    async fn insert_account(
+        state: &Arc<AppState>,
+        email: &str,
+        status: AccountStatus,
+        models: Vec<ls_accounts::ModelQuota>,
+    ) {
+        let account = Account {
+            id: format!("{:x}", md5::compute(email.as_bytes())),
+            email: email.to_string(),
+            name: None,
+            token: OAuthToken {
+                access_token: format!("access-{email}"),
+                refresh_token: format!("refresh-{email}"),
+                expires_in: 3600,
+                token_type: "Bearer".to_string(),
+                updated_at: chrono::Utc::now(),
+            },
+            status,
+            disabled_reason: None,
+            project_id: None,
+            label: None,
+            is_proxy_disabled: false,
+            created_at: chrono::Utc::now().timestamp(),
+            last_used: chrono::Utc::now().timestamp(),
+            quota: Some(QuotaData {
+                models,
+                last_updated: chrono::Utc::now().timestamp(),
+                is_forbidden: false,
+                forbidden_reason: None,
+                subscription_tier: None,
+                model_forwarding_rules: HashMap::new(),
+                extra: HashMap::new(),
+            }),
+            device_profile: None,
+        };
+
+        state.account_manager.upsert_account(account).await.unwrap();
+    }
+
+    async fn fetch_model_ids(state: Arc<AppState>) -> Vec<String> {
+        let response = models_api(State(state)).await.into_response();
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+        json["data"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|item| item["id"].as_str().unwrap().to_string())
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn models_api_keeps_zero_quota_models_visible() {
+        let state = make_test_state().await;
+        insert_account(
+            &state,
+            "active@example.com",
+            AccountStatus::Active,
+            vec![make_model("claude-sonnet-4-6", 0)],
+        )
+        .await;
+
+        let ids = fetch_model_ids(state).await;
+
+        assert!(
+            ids.contains(&"claude-sonnet-4-6".to_string()),
+            "expected exhausted models to stay discoverable, got {ids:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn models_api_returns_documented_models_without_accounts() {
+        let ids = fetch_model_ids(make_test_state().await).await;
+
+        for expected in [
+            "gemini-3.1-pro-high",
+            "gemini-3.1-pro-low",
+            "gemini-3-flash-agent",
+            "claude-sonnet-4-6",
+            "claude-opus-4-6-thinking",
+            "gpt-oss-120b-medium",
+        ] {
+            assert!(
+                ids.contains(&expected.to_string()),
+                "expected fallback model {expected} to be present, got {ids:?}"
+            );
+        }
     }
 }
