@@ -59,6 +59,7 @@ pub struct NativeLsInstance {
     data_dir: PathBuf,
     id: String,
     identity: String,
+    identity_token_fingerprint: String,
     // 追踪最后访问时间以支持 LRU (使用同步锁以适配 LsInstance trait)
     last_accessed: std::sync::Mutex<std::time::Instant>,
     created_at: std::time::Instant,
@@ -263,12 +264,10 @@ impl LsProvider for NativeLsProvider {
             if let Some(inst) = cache.get(&logic_id) {
                 // 如果是 Slot 模式且 Token 变更了，则需要重启切换
                 let is_slot_mismatch = slot_id.is_some() && {
-                    // 我们直接检查对应的隔离目录下的 token 文件
-                    let current_token_path = self.base_dir.join(format!("isolated_vs_{}", logic_id)).join(".gemini/jetski-standalone-oauth-token");
-                    if let Ok(content) = std::fs::read_to_string(current_token_path) {
-                        !content.contains(identity_token)
+                    if let Some(native) = inst.as_any().downcast_ref::<NativeLsInstance>() {
+                        native.identity_token_fingerprint != format!("{:x}", md5::compute(identity_token))
                     } else {
-                        true
+                        false
                     }
                 };
 
@@ -478,6 +477,7 @@ impl LsProvider for NativeLsProvider {
             data_dir,
             id: logic_id.clone(),
             identity: identity.to_string(),
+            identity_token_fingerprint: format!("{:x}", md5::compute(identity_token)),
             last_accessed: std::sync::Mutex::new(std::time::Instant::now()),
             created_at: std::time::Instant::now(),
             oauth_token: oauth_token_arc.clone(),
