@@ -35,6 +35,16 @@ use handlers::{
     settings::{get_settings_api, update_settings_api},
 };
 
+pub fn resolve_server_port(port: Option<u16>, app_settings: &crate::handlers::settings::AppSettings) -> u16 {
+    port.unwrap_or_else(|| {
+        std::env::var("PORT")
+            .ok()
+            .and_then(|p| p.parse::<u16>().ok())
+            .filter(|p| *p > 0)
+            .unwrap_or(app_settings.backend_port)
+    })
+}
+
 pub async fn run_server(port: Option<u16>) -> anyhow::Result<()> {
     // 显式安装 Rustls 加密提供程序
     let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
@@ -44,16 +54,13 @@ pub async fn run_server(port: Option<u16>) -> anyhow::Result<()> {
     
     println!("[SYSTEM] Antigravity Transcoder Bridge is starting...");
     println!("[SYSTEM] Data directory: {:?}", data_dir);
-    
-    let port = port.unwrap_or_else(|| {
-        std::env::var("PORT").unwrap_or_else(|_| "5173".to_string()).parse().unwrap_or(5173)
-    });
+    let app_settings = crate::handlers::settings::AppSettings::load(&data_dir);
+    let port = resolve_server_port(port, &app_settings);
 
     let account_manager = Arc::new(ls_accounts::AccountManager::new(data_dir.clone()).await?);
     
     let (sync_tx, _) = tokio::sync::broadcast::channel(16);
     let (account_tx, _) = tokio::sync::broadcast::channel(32);
-    let app_settings = crate::handlers::settings::AppSettings::load(&data_dir);
     
     // 注入自定义路径环境变量 [NEW]
     if let Some(ref path) = app_settings.antigravity_executable {
@@ -299,4 +306,20 @@ pub async fn run_server(port: Option<u16>) -> anyhow::Result<()> {
     axum::serve(listener, app).await?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::handlers::settings::AppSettings;
+    use crate::resolve_server_port;
+
+    #[test]
+    fn resolve_server_port_prefers_saved_settings_when_no_override_is_present() {
+        let settings = AppSettings {
+            backend_port: 5188,
+            ..Default::default()
+        };
+
+        assert_eq!(resolve_server_port(None, &settings), 5188);
+    }
 }

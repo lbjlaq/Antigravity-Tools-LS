@@ -24,4 +24,10 @@ export const settingsService = {
 
   // 探测 IDE [NEW]
   detectIde: () => apiClient.get('/provision/detect_ide'),
+
+  // 重启桌面应用以应用新的本地配置
+  restartApp: async () => {
+    const { invoke } = await import('@tauri-apps/api/core');
+    return invoke('restart_app');
+  },
 };

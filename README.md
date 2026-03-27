@@ -138,6 +138,12 @@ git clone https://github.com/lbjlaq/Antigravity-Tools-LS.git && cd Antigravity-T
 
 # Compile and run (default port 5173)
 RUST_LOG=info cargo run --bin cli-server
+
+# Use a custom backend port
+PORT=5188 RUST_LOG=info cargo run --bin cli-server
+
+# If you also run the Vite dashboard in dev mode, point the proxy to the same backend
+VITE_BACKEND_PORT=5188 npm --prefix apps/web-dashboard run dev
 ```
 
 ### Docker Deployment
@@ -145,7 +151,8 @@ Running via Docker on NAS or servers is recommended for optimal lifecycle manage
 ```bash
 docker run -d \
   --name antigravity-ls \
-  -p 5173:5173 \
+  -p 5188:5188 \
+  -e PORT=5188 \
   -e RUST_LOG=info \
   -v ~/.antigravity-ls-data:/root/.antigravity_tools_ls \
   lbjlaq/antigravity-tools-ls:latest
@@ -226,7 +233,7 @@ The Model Alias forwarding feature has not yet been achieved. An exact Model ID 
 ### v0.0.2 - Containerization & Dependency Optimization (2026-03-25)
 - **[Docker] Runtime Self-Healing**: Resolved startup crashes in `debian:bookworm-slim` by adding minimal required libraries for `ls_core` (`libnss3`, `libgbm1`, etc.).
 - **[Core] Decoupled GUI Dependencies**: Refactored `rfd` (file dialog) as an optional feature. Docker builds now automatically exclude GTK/Wayland links, maintaining a minimal image size.
-- **[OAuth Fix] Port Auto-Sensing**: Fixed the hardcoded `3000` port in `AddAccountModal`. Authorization redirects now automatically match the real backend port (default `5173` or current origin).
+- **[Port Config] Runtime Port Override**: The backend, Tauri desktop bridge, Vite proxy, OAuth flow, SSE subscriptions, and integration docs now all follow the configured backend port instead of hardcoding `5173`.
 - **[API] Environment-Aware Fallback**: Optimized path selection APIs to return user-friendly errors in headless environments instead of crashing.
 
 ### v0.0.1 (Experimental) - Initial Core Features Release

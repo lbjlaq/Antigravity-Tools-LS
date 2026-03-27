@@ -23,3 +23,4 @@ serde_json = "1"
 tracing = "0.1"
 tokio = { version = "1.37", features = ["full"] }
 cli-server = { path = "../../cli-server" }
+transcoder-core = { path = "../../../transcoder-core" }

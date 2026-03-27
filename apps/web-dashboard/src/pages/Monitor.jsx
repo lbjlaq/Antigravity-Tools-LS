@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { ConfirmModal } from '../components/Modal';
-import { baseURL } from '../api/client';
+import { resolveApiBaseUrl } from '../api/client';
 import { monitorService } from '../api/services/monitor';
 
 const Monitor = () => {
@@ -48,32 +48,41 @@ const Monitor = () => {
       .then(data => Array.isArray(data) && setLogs(data))
       .catch(err => console.error("Traffic history failed:", err));
 
-    const tES = new EventSource(baseURL + '/monitor/stream');
-    tES.onmessage = (event) => {
-      if (isPausedRef.current) return;
-      try {
-        const newLog = JSON.parse(event.data);
-        setLogs(prev => [newLog, ...prev.slice(0, 499)]);
-      } catch (err) {}
-    };
-    trafficESRef.current = tES;
-
     // 2. 系统日志订阅
     monitorService.getSystemLogs()
       .then(data => data.lines && setSysLogs(data.lines.reverse())) // 保持最新在前
       .catch(err => console.error("Sys history failed:", err));
+    
+    let disposed = false;
+    const startStreams = async () => {
+      const apiBaseUrl = await resolveApiBaseUrl();
+      if (disposed) return;
 
-    const sES = new EventSource(baseURL + '/logs/stream');
-    sES.onmessage = (event) => {
-      if (isPausedRef.current) return;
-      try {
-        const newEntry = JSON.parse(event.data);
-        setSysLogs(prev => [newEntry, ...prev.slice(0, 999)]);
-      } catch (err) {}
+      const tES = new EventSource(apiBaseUrl + '/monitor/stream');
+      tES.onmessage = (event) => {
+        if (isPausedRef.current) return;
+        try {
+          const newLog = JSON.parse(event.data);
+          setLogs(prev => [newLog, ...prev.slice(0, 499)]);
+        } catch (err) {}
+      };
+      trafficESRef.current = tES;
+
+      const sES = new EventSource(apiBaseUrl + '/logs/stream');
+      sES.onmessage = (event) => {
+        if (isPausedRef.current) return;
+        try {
+          const newEntry = JSON.parse(event.data);
+          setSysLogs(prev => [newEntry, ...prev.slice(0, 999)]);
+        } catch (err) {}
+      };
+      sysESRef.current = sES;
     };
-    sysESRef.current = sES;
+
+    startStreams();
 
     return () => {
+      disposed = true;
       if (trafficESRef.current) trafficESRef.current.close();
       if (sysESRef.current) sysESRef.current.close();
     };

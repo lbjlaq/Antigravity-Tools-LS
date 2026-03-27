@@ -10,7 +10,10 @@ use crate::state::AppState;
 
 /// 全局应用配置结构体，持久化至 data/app_settings.json
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct AppSettings {
+    /// 后端服务监听端口
+    pub backend_port: u16,
     /// 是否开启账号额度自动刷新
     pub auto_refresh_quota: bool,
     /// 额度自动刷新间隔 (分钟)
@@ -30,6 +33,7 @@ pub struct AppSettings {
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
+            backend_port: 5173,
             auto_refresh_quota: false,
             auto_refresh_interval_minutes: 360, // 6h
             traffic_log_retention_days: 30,
@@ -75,6 +79,10 @@ pub async fn update_settings_api(
     State(state): State<Arc<AppState>>,
     Json(new_settings): Json<AppSettings>,
 ) -> impl IntoResponse {
+    if new_settings.backend_port == 0 {
+        return (StatusCode::BAD_REQUEST, "backend_port 至少为 1").into_response();
+    }
+
     // 校验参数合理性 (分钟数最低限制为 1)
     if new_settings.auto_refresh_interval_minutes < 1 {
         return (StatusCode::BAD_REQUEST, "auto_refresh_interval_minutes 至少为 1").into_response();
@@ -100,6 +108,7 @@ pub async fn update_settings_api(
     } else {
         std::env::remove_var("ANT_EXECUTABLE_PATH");
     }
+    std::env::set_var("PORT", new_settings.backend_port.to_string());
 
     // 持久化到磁盘
     let data_dir = transcoder_core::common::get_app_data_dir();
@@ -110,4 +119,25 @@ pub async fn update_settings_api(
 
     tracing::info!("⚙️ 全局配置已更新并持久化: {:?}", new_settings);
     (StatusCode::OK, "配置更新成功").into_response()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::AppSettings;
+
+    #[test]
+    fn legacy_settings_payloads_fall_back_to_default_backend_port() {
+        let settings: AppSettings = serde_json::from_str(
+            r#"{
+                "auto_refresh_quota": true,
+                "auto_refresh_interval_minutes": 30,
+                "traffic_log_retention_days": 14,
+                "auto_sync_assets": false,
+                "auto_sync_interval_minutes": 60
+            }"#,
+        )
+        .expect("legacy settings json should still deserialize");
+
+        assert_eq!(settings.backend_port, 5173);
+    }
 }

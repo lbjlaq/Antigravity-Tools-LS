@@ -30,8 +30,14 @@ import useSettingsStore from '../store/useSettingsStore';
 import useAppStore from '../store/useAppStore';
 import i18n from '../i18n/config';
 import { useTranslation } from 'react-i18next';
-import { baseURL } from '../api/client';
+import { isTauri, resolveApiBaseUrl, resolveBackendOrigin } from '../api/client';
 import { settingsService } from '../api/services/settings';
+import {
+  createSettingsBaseline,
+  DEFAULT_LOCAL_SETTINGS,
+  getVisibleSettings,
+  updateSettingsDraft,
+} from './settingsDraftState';
 
 // ─── Tab 定义 ─────────────────────────────────────────────────────────────────
 const getTabs = (t) => [
@@ -43,7 +49,7 @@ const getTabs = (t) => [
 ];
 
 // ─── 通用二级标题 (Compact) ───────────────────────────────────────────────────
-const SectionHeader = ({ title, subtitle, icon: Icon, accent = "blue" }) => (
+const SectionHeader = ({ title, subtitle, accent = "blue" }) => (
   <div className="flex items-center gap-3 mb-5 px-1">
     <div className="flex flex-col">
       <span className={`text-[9.5px] font-black text-${accent}-500/80 uppercase tracking-[0.4em] mb-0.5`}>{title}</span>
@@ -130,6 +136,17 @@ const Toggle = ({ checked, onChange, label, description }) => (
     </button>
   </div>
 );
+
+const getPortFromOrigin = (origin) => {
+  if (!origin) return '';
+  try {
+    const url = new URL(origin);
+    if (url.port) return url.port;
+    return url.protocol === 'https:' ? '443' : '80';
+  } catch {
+    return '';
+  }
+};
 
 // ─── 具体面板内容 ─────────────────────────────────────────────────────────────
 const AppearanceTab = () => {
@@ -276,7 +293,8 @@ const AssetsTab = ({ provisionStatus, versionInfo, isSyncing, onSync, local, set
     
     // 建立 SSE 监听
     const { fetchProvisionStatus, fetchVersionInfo } = useSettingsStore.getState();
-    const eventSource = new EventSource(baseURL + '/provision/progress');
+    const apiBaseUrl = await resolveApiBaseUrl();
+    const eventSource = new EventSource(apiBaseUrl + '/provision/progress');
     eventSource.onmessage = (event) => {
       const data = JSON.parse(event.data);
       setSyncProgress({ 
@@ -478,14 +496,52 @@ const AssetsTab = ({ provisionStatus, versionInfo, isSyncing, onSync, local, set
 };
 
 // ─── IDE 设置页签 [NEW] ──────────────────────────────────────────────────────
-const IdeTab = ({ local, setLocal }) => {
+const IdeTab = ({ local, setLocal, activeBackendOrigin, activeBackendPort }) => {
   const { t } = useTranslation();
+  const restartRequired = activeBackendPort && `${local.backend_port}` !== `${activeBackendPort}`;
+
   return (
     <div className="space-y-8 animate-in slide-in-from-bottom-2 duration-500">
       <div className="grid grid-cols-1 gap-6">
         <SettingsCard>
           <SectionHeader title={t('settings.ideTitle')} subtitle={t('settings.ideSubtitle')} icon={Command} />
           <div className="space-y-6">
+            <div className="bg-background/40 border border-glass-border p-6 rounded-2xl space-y-4">
+              <div className="flex justify-between items-start gap-4">
+                <div className="flex flex-col gap-0.5">
+                  <p className="text-sm font-black italic tracking-tight text-foreground">{t('settings.backendPort')}</p>
+                  <p className="text-[9px] font-black text-foreground/55 uppercase tracking-widest leading-relaxed max-w-[320px]">{t('settings.backendPortDesc')}</p>
+                </div>
+                <div className="px-3 py-1.5 rounded-lg bg-blue-500/10 border border-blue-500/20 text-[10px] font-black text-blue-400 uppercase tracking-widest">
+                  LIVE {activeBackendPort || local.backend_port}
+                </div>
+              </div>
+              <input
+                type="number"
+                min="1"
+                max="65535"
+                value={local.backend_port ?? 5173}
+                onChange={e => {
+                  const next = parseInt(e.target.value, 10);
+                  if (Number.isNaN(next)) return;
+                  setLocal(s => ({ ...s, backend_port: Math.min(65535, Math.max(1, next)) }));
+                }}
+                placeholder="5173"
+                className="w-full bg-background/50 border border-glass-border rounded-xl py-2.5 px-4 text-xs font-mono font-bold text-blue-400 focus:outline-none focus:border-blue-500/40 transition-all"
+              />
+              <div className="rounded-xl border border-glass-border bg-background/30 px-4 py-3">
+                <div className="text-[9px] font-black text-foreground/45 uppercase tracking-[0.3em] mb-2">{t('settings.backendRuntime')}</div>
+                <code className="text-xs font-mono font-bold text-foreground/80 break-all">{activeBackendOrigin || `http://127.0.0.1:${local.backend_port}`}</code>
+              </div>
+              {restartRequired && (
+                <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-[10px] font-bold text-amber-400 leading-relaxed">
+                  {isTauri
+                    ? t('settings.portRestartBannerDesktop', { active: activeBackendPort, next: local.backend_port })
+                    : t('settings.portRestartBannerWeb', { active: activeBackendPort, next: local.backend_port })}
+                </div>
+              )}
+            </div>
+
             <div className="bg-background/40 border border-glass-border p-6 rounded-2xl space-y-3">
               <div className="flex justify-between items-center">
                 <div className="flex flex-col gap-0.5">
@@ -500,7 +556,7 @@ const IdeTab = ({ local, setLocal }) => {
                         if (res.success) {
                           setLocal(s => ({ ...s, antigravity_executable: res.executable_path }));
                         }
-                      } catch (e) {
+                      } catch {
                          // 取消或错误不处理
                       }
                     }}
@@ -576,6 +632,7 @@ const Settings = () => {
   const spotlightRef = useSpotlight();
   const { state } = useLocation();
   const [activeTab, setActiveTab] = useState(state?.tab || 'appearance');
+  const [activeBackendOrigin, setActiveBackendOrigin] = useState('');
   const TABS = getTabs(t);
   const {
     settings, provisionStatus, versionInfo,
@@ -584,35 +641,59 @@ const Settings = () => {
     syncAssets,
   } = useSettingsStore();
 
-  const [local, setLocal] = useState({
-    auto_refresh_quota: false,
-    auto_refresh_interval_minutes: 360,
-    traffic_log_retention_days: 30,
-    auto_sync_assets: true,
-    auto_sync_interval_minutes: 1440,
-    antigravity_executable: '',
-    antigravity_args: [],
-  });
+  const [draft, setDraft] = useState(null);
 
   useEffect(() => {
+    let isDisposed = false;
+
     fetchSettings();
     fetchProvisionStatus();
     fetchVersionInfo();
-  }, []);
+    resolveBackendOrigin()
+      .then((origin) => {
+        if (!isDisposed) {
+          setActiveBackendOrigin(origin);
+        }
+      })
+      .catch(() => {});
 
-  useEffect(() => { 
-    if (settings && Object.keys(settings).length > 0) {
-      setLocal(prev => ({ ...prev, ...settings })); 
-    }
-  }, [settings]);
+    return () => {
+      isDisposed = true;
+    };
+  }, [fetchSettings, fetchProvisionStatus, fetchVersionInfo]);
 
-  const hasChanges = JSON.stringify(local) !== JSON.stringify(settings);
+  const baselineSettings = createSettingsBaseline(settings);
+  const local = getVisibleSettings({ baseline: baselineSettings, draft });
+  const setLocal = (updater) => {
+    setDraft((currentDraft) => updateSettingsDraft({
+      baseline: baselineSettings,
+      draft: currentDraft,
+      updater,
+    }));
+  };
+  const hasChanges = JSON.stringify(local) !== JSON.stringify(baselineSettings);
+  const activeBackendPort = getPortFromOrigin(activeBackendOrigin);
 
   const { addToast } = useAppStore();
   const handleSave = async () => {
     try { 
-      await saveSettings(local); 
+      const portChanged = !!activeBackendPort && `${local.backend_port}` !== `${activeBackendPort}`;
+      await saveSettings(local);
+      setDraft(null);
       addToast(t('settings.syncSuccess') || 'Settings saved', 'success');
+
+      if (portChanged) {
+        if (isTauri) {
+          const shouldRestart = window.confirm(t('settings.portRestartPrompt', { port: local.backend_port }));
+          if (shouldRestart) {
+            await settingsService.restartApp();
+            return;
+          }
+          addToast(t('settings.portRestartPendingDesktop', { port: local.backend_port }), 'warning');
+        } else {
+          addToast(t('settings.portRestartPendingWeb', { port: local.backend_port }), 'warning');
+        }
+      }
     }
     catch (e) { addToast(t('settings.syncFailed') + e.message, 'error'); }
   };
@@ -674,7 +755,7 @@ const Settings = () => {
             local={local}
             setLocal={setLocal}
           />}
-          {activeTab === 'ide'        && <IdeTab local={local} setLocal={setLocal} />}
+          {activeTab === 'ide'        && <IdeTab local={local} setLocal={setLocal} activeBackendOrigin={activeBackendOrigin} activeBackendPort={activeBackendPort} />}
         </div>
       </div>
 

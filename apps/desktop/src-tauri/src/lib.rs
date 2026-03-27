@@ -1,4 +1,8 @@
-use tauri::{Manager, menu::{Menu, MenuItem}, tray::TrayIconBuilder};
+use tauri::{Manager, State, menu::{Menu, MenuItem}, tray::TrayIconBuilder};
+
+struct BackendConfig {
+    port: u16,
+}
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
@@ -6,9 +10,28 @@ fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
 }
 
+#[tauri::command]
+fn get_backend_origin(config: State<'_, BackendConfig>) -> String {
+    format!("http://127.0.0.1:{}", config.port)
+}
+
+#[tauri::command]
+fn restart_app(app: tauri::AppHandle) {
+    app.request_restart();
+}
+
+fn resolve_backend_port() -> u16 {
+    let data_dir = transcoder_core::common::get_app_data_dir();
+    let settings = cli_server::handlers::settings::AppSettings::load(&data_dir);
+    cli_server::resolve_server_port(None, &settings)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let backend_port = resolve_backend_port();
+
     tauri::Builder::default()
+        .manage(BackendConfig { port: backend_port })
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_window_state::Builder::default().build())
@@ -30,7 +53,7 @@ pub fn run() {
                     }
                 });
         }))
-        .setup(|app| {
+        .setup(move |app| {
             // --- 系统托盘架构 (System Tray) ---
             let icon_bytes = include_bytes!("../icons/32x32.png");
             let img = tauri::image::Image::from_bytes(icon_bytes)?;
@@ -89,8 +112,8 @@ pub fn run() {
 
             // --- 后端服务初始化 (Axum Server) ---
             tauri::async_runtime::spawn(async move {
-                tracing::info!("Starting bundled Axum server from Tauri...");
-                if let Err(e) = cli_server::run_server(Some(5173)).await {
+                tracing::info!("Starting bundled Axum server from Tauri on port {}...", backend_port);
+                if let Err(e) = cli_server::run_server(Some(backend_port)).await {
                     tracing::error!("Failed to start Axum server: {}", e);
                 }
             });
@@ -105,7 +128,7 @@ pub fn run() {
                 api.prevent_close();
             }
         })
-        .invoke_handler(tauri::generate_handler![greet])
+        .invoke_handler(tauri::generate_handler![greet, get_backend_origin, restart_app])
         .build(tauri::generate_context!())
         .expect("error while running tauri application")
         .run(|app_handle, event| {

@@ -44,6 +44,7 @@ import {
 import useAccountStore from '../store/useAccountStore';
 import useKeyStore from '../store/useKeyStore';
 import useAppStore from '../store/useAppStore';
+import { publicApiBaseUrl, resolvePublicApiBaseUrl } from '../api/client';
 
 const Integration = () => {
   const { t } = useTranslation();
@@ -57,6 +58,7 @@ const Integration = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedApi, setSelectedApi] = useState(null);
   const [showKey, setShowKey] = useState(false);
+  const [apiUrl, setApiUrl] = useState(publicApiBaseUrl);
 
   // 首屏加载时确保有账号和密钥数据
   useEffect(() => {
@@ -68,12 +70,19 @@ const Integration = () => {
     }
   }, []);
 
-  // 端口逻辑：后端核心服务的真实端口是 5173，3000 是 Web 端代理端口
-  const protocol = window.location.protocol;
-  const hostname = window.location.hostname;
-  const backendPort = '5173'; // 核心接口端口
-  const baseUrl = `${protocol}//${hostname}:${backendPort}`;
-  const apiUrl = `${baseUrl}/v1`;
+  useEffect(() => {
+    let disposed = false;
+    resolvePublicApiBaseUrl().then((resolvedUrl) => {
+      if (!disposed) {
+        setApiUrl(resolvedUrl);
+      }
+    });
+    return () => {
+      disposed = true;
+    };
+  }, []);
+
+  const baseUrl = apiUrl.replace(/\/v1$/, '');
   
   const defaultKey = keys.length > 0 ? keys[0].key : 'sk-antigravity-none-configure-one-first';
   const maskedKey = defaultKey.length > 12 
@@ -436,7 +445,7 @@ const Integration = () => {
                       {copiedField === 'url' ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
                     </button>
                   </div>
-                  <p className="px-2 text-[9px] font-bold text-foreground/45 italic tracking-tight">Backend: 5173 | Dashboard Path: /</p>
+                  <p className="px-2 text-[9px] font-bold text-foreground/45 italic tracking-tight">Backend Origin: {baseUrl} | Dashboard Path: /</p>
                 </div>
               </div>
               <div className="space-y-4">

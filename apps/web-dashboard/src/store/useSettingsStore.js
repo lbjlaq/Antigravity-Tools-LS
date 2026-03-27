@@ -4,6 +4,7 @@ import { settingsService } from '../api/services/settings';
 const useSettingsStore = create((set, get) => ({
   // 全局配置（与后端 AppSettings 对应）
   settings: {
+    backend_port: 5173,
     auto_refresh_quota: false,
     auto_refresh_interval_hours: 6,
     traffic_log_retention_days: 30,

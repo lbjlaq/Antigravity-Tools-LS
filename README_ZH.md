@@ -138,6 +138,12 @@ git clone https://github.com/lbjlaq/Antigravity-Tools-LS.git && cd Antigravity-T
 
 # 编译并运行 (默认端口 5173)
 RUST_LOG=info cargo run --bin cli-server
+
+# 使用自定义后端端口
+PORT=5188 RUST_LOG=info cargo run --bin cli-server
+
+# 如果还需要本地启动 Vite 面板开发环境，请让代理指向同一个后端端口
+VITE_BACKEND_PORT=5188 npm --prefix apps/web-dashboard run dev
 ```
 
 ### Docker 容器化部署
@@ -145,7 +151,8 @@ RUST_LOG=info cargo run --bin cli-server
 ```bash
 docker run -d \
   --name antigravity-ls \
-  -p 5173:5173 \
+  -p 5188:5188 \
+  -e PORT=5188 \
   -e RUST_LOG=info \
   -v ~/.antigravity-ls-data:/root/.antigravity_tools_ls \
   lbjlaq/antigravity-tools-ls:latest
@@ -226,7 +233,7 @@ docker run -d \
 ### v0.0.2 - 容器化生产力与依赖优化 (2026-03-25)
 - **[Docker] 启动环境自愈**：攻克了 `debian:bookworm-slim` 镜像缺失极简 GUI 库导致的启动崩溃问题，补齐了 `ls_core` 运行所需的最小依赖集（`libnss3`, `libgbm1` 等）。
 - **[核心解耦] GUI 依赖按需加载**：将 `rfd` (文件选择框) 迁移为可选依赖项并增加 `gui` feature 门控，Docker 构建时自动剔除 GTK/Wayland 强链接，保持镜像极度精简。
-- **[OAuth 修复] 授权端口自动感知**：修正了前端 `AddAccountModal` 中硬编码的 `3000` 端口，现在授权跳转能自动识别并匹配真实的后端端口（默认 `5173` 或当前自定义 Origin）。
+- **[端口配置] 运行时端口可覆盖**：后端、Tauri 桌面桥接、Vite 代理、OAuth 流程、SSE 订阅和集成页展示现在都会跟随配置后的后端端口，不再写死 `5173`。
 - **[优雅降级] 环境感知 API**：优化了路径选择接口，在无 GUI 的服务器环境下会自动返回友好的错误指引而非进程崩溃。
 
 ### v0.0.1 (Experimental) - 首发核心特性落成

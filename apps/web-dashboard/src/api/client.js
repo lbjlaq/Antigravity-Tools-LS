@@ -1,24 +1,38 @@
 import axios from 'axios';
+import {
+  getClientApiBaseUrl,
+  getPublicApiBaseUrl,
+  getPublicApiOrigin,
+  isTauri,
+  resolveApiBaseUrl,
+  resolveBackendOrigin,
+  resolvePublicApiBaseUrl,
+  resolvePublicApiOrigin,
+} from './runtime';
 
-// 动态识别 Tauri 生产环境：支持 v1 (tauri:) 和 v2 (tauri.localhost)
-const isTauri = typeof window !== 'undefined' && (
-  !!window.__TAURI__ || 
-  window.location.protocol === 'tauri:' || 
-  window.location.hostname === 'tauri.localhost' ||
-  window.location.host === 'tauri.localhost' ||
-  window.location.port === '1420' // Tauri dev 默认端口
-);
-
-// 生产环境下强制直连 Axum (127.0.0.1:5173)，开发环境下使用 Vite Proxy (/v1)
-export const baseURL = isTauri ? 'http://127.0.0.1:5173/v1' : '/v1';
-export { isTauri };
+export const baseURL = getClientApiBaseUrl();
+export const publicApiBaseUrl = getPublicApiBaseUrl();
+export const publicApiOrigin = getPublicApiOrigin();
+export {
+  isTauri,
+  resolveApiBaseUrl,
+  resolveBackendOrigin,
+  resolvePublicApiBaseUrl,
+  resolvePublicApiOrigin,
+};
 
 const apiClient = axios.create({
-  baseURL,
   timeout: 300000, // 延长至 5 分钟，适配核心资产下载
   headers: {
     'Content-Type': 'application/json',
   },
+});
+
+apiClient.interceptors.request.use(async (config) => {
+  if (!config.baseURL) {
+    config.baseURL = await resolveApiBaseUrl();
+  }
+  return config;
 });
 
 // 响应拦截器：统一处理数据解包与错误日志

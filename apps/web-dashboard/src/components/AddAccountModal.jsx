@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { Globe, FileCode, CheckCircle2, XCircle, Loader2, Link2, Plus, Info } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { isTauri } from '../api/client';
+import { isTauri, resolveBackendOrigin, resolvePublicApiOrigin } from '../api/client';
 import { openUrl as tauriOpen } from '@tauri-apps/plugin-opener';
 import useAccountStore from '../store/useAccountStore';
 
@@ -15,6 +15,13 @@ const AddAccountModal = ({ isOpen, onClose }) => {
   const [message, setMessage] = useState('');
 
   const { importByCallbackUrl, importByTokens } = useAccountStore();
+
+  function resetState() {
+    setStatus('idle');
+    setMessage('');
+    setCallbackUrl('');
+    setTokensText('');
+  }
 
   // 监听 OAuth 成功消息 (从弹出的授权页传回)
   useEffect(() => {
@@ -35,17 +42,15 @@ const AddAccountModal = ({ isOpen, onClose }) => {
   // [桌面端专用] 监听后端发出的账号导入成功事件
   useEffect(() => {
     if (status !== 'loading' || !isTauri) return;
-
-    // 智能识别 API 地址
-    let API_BASE = import.meta.env.VITE_API_URL;
-    if (!API_BASE) {
-      API_BASE = 'http://127.0.0.1:5173';
-    }
-    
+  
     const { fetchAccounts } = useAccountStore.getState();
     const initialCount = useAccountStore.getState().accounts.length;
+    let pollInterval;
+    let eventSource;
+    let disposed = false;
     
     const handleSuccess = () => {
+      if (disposed) return;
       setStatus('success');
       setMessage(t('accounts.oauthSuccess'));
       setTimeout(() => {
@@ -54,65 +59,49 @@ const AddAccountModal = ({ isOpen, onClose }) => {
       }, 1500);
     };
 
-    // 策略 A: SSE 实时推送
-    const eventSource = new EventSource(`${API_BASE}/v1/accounts/events`);
-    eventSource.onmessage = (event) => {
-      if (event.data === 'imported') {
-        console.log('SSE: Received imported event');
-        handleSuccess();
-        eventSource.close();
-      }
-    };
+    const startListeners = async () => {
+      const apiOrigin = await resolveBackendOrigin();
+      if (disposed) return;
 
-    // 策略 B: 轮询检查 (作为 SSE 失效时的兜底)
-    const pollInterval = setInterval(async () => {
-      try {
-        await fetchAccounts();
-        const currentCount = useAccountStore.getState().accounts.length;
-        if (currentCount > initialCount) {
-          console.log('Polling: Account count increased, success');
+      eventSource = new EventSource(`${apiOrigin}/v1/accounts/events`);
+      eventSource.onmessage = (event) => {
+        if (event.data === 'imported') {
+          console.log('SSE: Received imported event');
           handleSuccess();
-          clearInterval(pollInterval);
           eventSource.close();
         }
-      } catch (e) {
-        console.warn('Polling check failed:', e);
-      }
-    }, 2000);
+      };
 
-    eventSource.onerror = () => eventSource.close();
+      pollInterval = setInterval(async () => {
+        try {
+          await fetchAccounts();
+          const currentCount = useAccountStore.getState().accounts.length;
+          if (currentCount > initialCount) {
+            console.log('Polling: Account count increased, success');
+            handleSuccess();
+            clearInterval(pollInterval);
+            eventSource?.close();
+          }
+        } catch (e) {
+          console.warn('Polling check failed:', e);
+        }
+      }, 2000);
+
+      eventSource.onerror = () => eventSource.close();
+    };
+
+    startListeners();
 
     return () => {
-      eventSource.close();
-      clearInterval(pollInterval);
+      disposed = true;
+      eventSource?.close();
+      if (pollInterval) clearInterval(pollInterval);
     };
   }, [status, onClose, t]);
 
-  const resetState = () => {
-    setStatus('idle');
-    setMessage('');
-    setCallbackUrl('');
-    setTokensText('');
-  };
-
   const handleOAuthStart = async () => {
-    // 优先使用环境变量，否则根据环境智能识别 API 地址
-    let API_BASE = import.meta.env.VITE_API_URL;
-    
-    if (!API_BASE) {
-      if (isTauri) {
-        // Tauri 环境下，cli-server 独立运行在 5173 端口
-        API_BASE = 'http://127.0.0.1:5173';
-      } else if (window.location.port === '3000') {
-        // Vite 开发环境下 (端口 3000)，cli-server 通常也在 5173
-        API_BASE = `${window.location.protocol}//${window.location.hostname}:5173`;
-      } else {
-        // 生产 Web 环境回退到 origin
-        API_BASE = window.location.origin;
-      }
-    }
-    
-    const loginUrl = `${API_BASE}/v1/auth/login`;
+    const apiOrigin = await resolvePublicApiOrigin();
+    const loginUrl = `${apiOrigin}/v1/auth/login`;
     
     setStatus('loading');
     setMessage(t('accounts.oauthPending'));
@@ -161,7 +150,7 @@ const AddAccountModal = ({ isOpen, onClose }) => {
     setStatus('loading');
     
     // 正则提取所有以 1// 开头的 Refresh Token
-    const regex = /1\/\/[a-zA-Z0-9_\-]+/g;
+    const regex = /1\/\/[a-zA-Z0-9_-]+/g;
     const tokens = [...new Set(tokensText.match(regex) || [])];
     
     if (tokens.length === 0) {

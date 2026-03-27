@@ -25,7 +25,7 @@ import AddAccountModal from '../components/AddAccountModal';
 import { BaseModal, ConfirmModal } from '../components/Modal';
 import { useTranslation } from 'react-i18next';
 import { useSpotlight } from '../hooks/useSpotlight';
-import { baseURL } from '../api/client';
+import { resolveApiBaseUrl } from '../api/client';
 
 // 指定要展示的核心代表性模型 (通过代表项观察同家族配额)
 const RECOMMENDED_MODELS = [
@@ -856,25 +856,32 @@ const Accounts = () => {
 
   // 🚀 实时同步逻辑: 监听后端 SSE 事件并自动刷新页面
   useEffect(() => {
-    // 监听账号变更事件流
-    const eventSource = new EventSource(baseURL + '/accounts/events');
+    let eventSource;
+    let disposed = false;
 
-    eventSource.onmessage = (event) => {
-      console.log('📬 收到账号变更通知:', event.data);
-      if (event.data !== 'connected') {
-        // 当发生真正的变更（如 refreshed, imported, deleted）时触发刷新
-        fetchAccounts();
-      }
+    const startStream = async () => {
+      const apiBaseUrl = await resolveApiBaseUrl();
+      if (disposed) return;
+
+      eventSource = new EventSource(apiBaseUrl + '/accounts/events');
+      eventSource.onmessage = (event) => {
+        console.log('📬 收到账号变更通知:', event.data);
+        if (event.data !== 'connected') {
+          fetchAccounts();
+        }
+      };
+
+      eventSource.onerror = (err) => {
+        console.error('⚠️ SSE 连接异常:', err);
+      };
     };
 
-    eventSource.onerror = (err) => {
-      console.error('⚠️ SSE 连接异常:', err);
-      // EventSource 会自动重连，这里仅作记录
-    };
+    startStream();
 
     return () => {
+      disposed = true;
       console.log('🔌 关闭账号变更通知连接');
-      eventSource.close();
+      eventSource?.close();
     };
   }, [fetchAccounts]);
 
